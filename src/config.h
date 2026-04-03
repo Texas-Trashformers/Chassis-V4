@@ -6,7 +6,7 @@
 // ====================== INPUT STATE STRUCT (MUST MATCH CONTROLLER EXACTLY) ======================
 enum joystickpos {C, N, NE, E, SE, S, SW, W, NW};
 
-const char* dirNames[9] = {"CENTER", "N", "NE", "E", "SE", "S", "SW", "W", "NW"};
+extern const char* dirNames[9];
 
 enum ControlMode { 
   MODE_DRIVE = 0,

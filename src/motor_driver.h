@@ -24,4 +24,5 @@ public:
 
 private:
   void handleDriveMode(const InputState& pkt);
+  void handleArmMode(const InputState& pkt);
 };

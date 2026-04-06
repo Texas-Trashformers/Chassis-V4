@@ -44,5 +44,42 @@ typedef struct __attribute__((packed)) {
 #define SCL_PIN            1
 #define SDA_PIN            2
 
+// ====================== PHASE III: MOTOR CONTROL PINS ======================
+// From your MCU schematic
+
+// Arm TB6612FNG (M_* group)
+#define M_PWMA            15
+#define M_PWMB            16
+#define M_AIN1            39
+#define M_AIN2            40
+#define M_BIN1            41
+#define M_BIN2            42
+
+// Drive Right TB6612FNG (R_* group)
+#define R_PWMA            14
+#define R_AIN1            17
+#define R_AIN2            18
+#define R_PWMB            21
+#define R_BIN1            35
+#define R_BIN2            36
+
+// Drive Left TB6612FNG (L_* group)
+#define L_PWMA            37
+#define L_AIN1            38
+#define L_AIN2            45
+#define L_PWMB            46
+#define L_BIN1            47
+#define L_BIN2            48
+
+// LX-16A Bus Servo Signal
+#define LX16A_SIGNAL_PIN   5
+
+// End Effector Standard PWM Servo
+#define PWM_EE_PIN         7
+
+// Limit Switches
+#define LIM_SW_L_PIN       9   
+#define LIM_SW_R_PIN      10   
+
 // ====================== TIMING ======================
 const unsigned long LINK_TIMEOUT_MS = 500;   // if no packet for this long → fault LED

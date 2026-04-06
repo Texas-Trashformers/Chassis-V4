@@ -2,7 +2,8 @@
 
 void DriveController::begin() {
   power.begin();
-  Serial.println("[CTRL] DriveController ready");
+  motors.begin();
+  Serial.println("[CTRL] DriveController + Motors ready");
 }
 
 void DriveController::update(const InputState& pkt) {
@@ -12,6 +13,8 @@ void DriveController::update(const InputState& pkt) {
 
   power.enableDriveRail(wantDrive);
   power.enableArmRail(wantArm);
+
+  motors.update(pkt);
 
 #ifdef SERIAL_DEBUG
   static uint32_t count = 0;

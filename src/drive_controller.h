@@ -1,6 +1,7 @@
 #pragma once
 #include "config.h"
-#include "power_monitoring.h"     // ← note the filename
+#include "power_monitoring.h"
+#include "motor_driver.h"
 
 class DriveController {
 public:
@@ -8,4 +9,5 @@ public:
   void update(const InputState& pkt);
 
   PowerMonitor power;
+  MotorDriver motors;
 };

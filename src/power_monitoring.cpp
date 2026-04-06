@@ -3,13 +3,12 @@
 void PowerMonitor::begin() {
   Serial.println("[POWER] Initializing INA219 (10 mΩ shunt)...");
 
-  // Explicitly set I2C pins (your config defines SCL_PIN=1, SDA_PIN=2)
   Wire.begin(SDA_PIN, SCL_PIN);
 
   if (!ina219.begin()) {
-    Serial.println("[POWER] ❌ INA219 init FAILED! (Check power on BATT rail or wiring)");
+    Serial.println("[POWER] ❌ INA219 init FAILED! (Check BATT rail power)");
   } else {
-    ina219.setCalibration_16V_400mA();   // Correct for your 10 mΩ shunt
+    ina219.setCalibration_16V_400mA();
     Serial.println("[POWER] ✅ INA219 ready (16V / 400 mA range)");
   }
 
@@ -39,6 +38,7 @@ void PowerMonitor::update() {
 }
 
 void PowerMonitor::enableDriveRail(bool on) {
+  if (on == driveEnabled) return;        // ← only act if state actually changed
   digitalWrite(DRIVE_EN_PIN, on ? HIGH : LOW);
   driveEnabled = on;
 #ifdef SERIAL_DEBUG
@@ -47,6 +47,7 @@ void PowerMonitor::enableDriveRail(bool on) {
 }
 
 void PowerMonitor::enableArmRail(bool on) {
+  if (on == armEnabled) return;          // ← only act if state actually changed
   digitalWrite(ARM_EN_PIN, on ? HIGH : LOW);
   armEnabled = on;
 #ifdef SERIAL_DEBUG

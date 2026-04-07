@@ -3,25 +3,33 @@
 void ArmSystem::begin() {
   ESP32PWM::allocateTimer(0);
   gripper.setPeriodHertz(50);
+  
+  // 1. Wake up the End Effector
   gripper.attach(PWM_EE_PIN, 500, 2500);
   gripperAngle = GRIPPER_MIN;
   gripper.write(gripperAngle);
+  
+  delay(500); // <-- Let power stabilize
 
   pinMode(M_PWMA_PIN, OUTPUT);
   pinMode(M_AIN1_PIN, OUTPUT);
   pinMode(M_AIN2_PIN, OUTPUT);
   setBaseMotor(0); 
 
-  // RAW UART SETUP: RX set to -1 prevents loopback crashes!
+  // RAW UART SETUP
   lxUart.begin(115200, SERIAL_8N1, -1, LX16A_SIGNAL_PIN); 
 
+  // 2. Wake up LX-16A Servo 1
   lx16a_move(1, HOME_S1, 1000);
-  lx16a_move(2, HOME_S2, 1000);
-  
   lx1_angle = HOME_S1;
+  
+  delay(500); // <-- Let power stabilize
+
+  // 3. Wake up LX-16A Servo 2
+  lx16a_move(2, HOME_S2, 1000);
   lx2_angle = HOME_S2;
 
-  Serial.println("[ARM] Subsystems Initialized (Raw Bytes Mode).");
+  Serial.println("[ARM] Subsystems Initialized (Staggered Startup).");
 }
 
 void ArmSystem::setBaseMotor(int speed) {
@@ -68,8 +76,10 @@ void ArmSystem::update(const InputState& currentInput, const InputState& lastInp
   }
 
   // --- Phase 1: End Effector (Right Joy) ---
+  // INCLUDES POWER-SAVING DETACH FIX
   if (millis() - lastGripperUpdate > 50) {
     bool moved = false;
+    
     if ((currentInput.joy2 == E || currentInput.joy2 == NE || currentInput.joy2 == SE) && gripperAngle < GRIPPER_MAX) {
       gripperAngle += GRIPPER_STEP;
       moved = true;
@@ -83,8 +93,14 @@ void ArmSystem::update(const InputState& currentInput, const InputState& lastInp
     if (gripperAngle < GRIPPER_MIN) gripperAngle = GRIPPER_MIN;
     
     if (moved) {
+      if (!gripper.attached()) {
+        gripper.attach(PWM_EE_PIN, 500, 2500); // Wake up servo
+      }
       gripper.write(gripperAngle);
       lastGripperUpdate = millis();
+    } else if (millis() - lastGripperUpdate > 500 && gripper.attached()) {
+      // If we haven't moved the gripper in 500ms, turn off its PWM signal
+      gripper.detach(); 
     }
   }
 
@@ -120,10 +136,10 @@ void ArmSystem::update(const InputState& currentInput, const InputState& lastInp
     }
 
     if (lxMoved) {
-      // LX-16A standard max is 240 degrees (24000 centi-degrees)
-      if (lx1_angle > 24000) lx1_angle = 24000;
+      // LX-16A hardware limits are strictly 0 to 1000
+      if (lx1_angle > 1000) lx1_angle = 1000;
       if (lx1_angle < 0) lx1_angle = 0;
-      if (lx2_angle > 24000) lx2_angle = 24000;
+      if (lx2_angle > 1000) lx2_angle = 1000;
       if (lx2_angle < 0) lx2_angle = 0;
 
       lx16a_move(1, lx1_angle, 30);
@@ -145,7 +161,7 @@ void ArmSystem::update(const InputState& currentInput, const InputState& lastInp
   if (currentInput.dpad_L_down && !lastInput.dpad_L_down) {
     executePose(POSE_BACK_BIN);
   }
-}
+} // <--- This was the missing bracket!
 
 // ==========================================
 // LX-16A RAW BYTE HELPERS
@@ -171,10 +187,10 @@ void ArmSystem::lx16a_send(uint8_t id, uint8_t cmd, uint8_t* params, uint8_t len
   lxUart.write(buf, 6 + len);
 }
 
-void ArmSystem::lx16a_move(uint8_t id, int16_t centi_deg, uint16_t time_ms) {
+void ArmSystem::lx16a_move(uint8_t id, int16_t raw_pos, uint16_t time_ms) {
   uint8_t p[4] = {
-    (uint8_t)(centi_deg & 0xFF), 
-    (uint8_t)(centi_deg >> 8), 
+    (uint8_t)(raw_pos & 0xFF), 
+    (uint8_t)(raw_pos >> 8), 
     (uint8_t)(time_ms & 0xFF), 
     (uint8_t)(time_ms >> 8)
   };

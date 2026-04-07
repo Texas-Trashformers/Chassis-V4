@@ -20,21 +20,23 @@ private:
 
   // --- Phase 3: LX-16A Raw Byte Bus ---
   HardwareSerial lxUart{1}; 
-  int lx1_angle = 12000; // Centi-degrees (12000 = 120 degrees)
-  int lx2_angle = 12000;
+  int lx1_angle = 500; // 500 = Center (120 degrees)
+  int lx2_angle = 500;
   unsigned long lastLxUpdate = 0;
-  const int LX_STEP = 300; // 3 degrees per tick
+  
+  // 3 units per 30ms = approx 24 degrees per second
+  const int LX_STEP = 3; 
 
   // Raw serial helpers
   void lx16a_send(uint8_t id, uint8_t cmd, uint8_t* params, uint8_t len);
-  void lx16a_move(uint8_t id, int16_t centi_deg, uint16_t time_ms);
+  void lx16a_move(uint8_t id, int16_t raw_pos, uint16_t time_ms);
 
   // --- Pose Definitions ---
   void executePose(int poseID);
   
-  // Angles for each pose in centi-degrees
-  const int HOME_S1 = 12000, HOME_S2 = 12000;
-  const int PICKUP_S1 = 6000, PICKUP_S2 = 6000;
-  const int FRONT_BIN_S1 = 18000, FRONT_BIN_S2 = 18000;
-  const int BACK_BIN_S1 = 2000, BACK_BIN_S2 = 2000;
+  // Angles mapped to the 0-1000 range (0 = 0 deg, 1000 = 240 deg)
+  const int HOME_S1 = 500, HOME_S2 = 500;             // 120 deg
+  const int PICKUP_S1 = 250, PICKUP_S2 = 250;         // 60 deg
+  const int FRONT_BIN_S1 = 750, FRONT_BIN_S2 = 750;   // 180 deg
+  const int BACK_BIN_S1 = 83, BACK_BIN_S2 = 83;       // 20 deg
 };

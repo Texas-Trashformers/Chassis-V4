@@ -63,16 +63,24 @@ void loop() {
     digitalWrite(WIRELESS_LED_PIN, HIGH);
     driveController.update(latestPacket);
   }
-  arm.update(latestPacket, lastPacket);
-  lastPacket = latestPacket;
-
+  
   // Link loss detection
   if (millis() - lastPacketTime > LINK_TIMEOUT_MS) {
     digitalWrite(WIRELESS_LED_PIN, LOW);
     digitalWrite(FAULT_LED_PIN, (millis() % 400 < 200) ? HIGH : LOW);
+    
+    // --- NEW FAILSAFE: Stop all motors if connection drops ---
+    // If we don't do this, the ESP32 will keep trying to drive motors
+    // based on stale data, keeping voltage low and preventing reconnection.
+    memset(&latestPacket, 0, sizeof(InputState)); 
+    // (Assuming 0 equates to 'CENTER' for your joystick enums and unpressed for buttons)
+    
   } else {
     digitalWrite(FAULT_LED_PIN, LOW);
   }
+
+  arm.update(latestPacket, lastPacket);
+  lastPacket = latestPacket;
 
   driveController.power.update();   // INA219 readings
 

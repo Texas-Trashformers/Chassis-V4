@@ -79,5 +79,21 @@ typedef struct __attribute__((packed)) {
 #define LIM_SW_L_PIN       9   
 #define LIM_SW_R_PIN      10   
 
+// ====================== ARM SYSTEM ======================
+#define GRIPPER_MIN     0
+#define GRIPPER_MAX     180
+#define GRIPPER_STEP    5
+#define BASE_SPEED      150
+
+#define POSE_HOME       0
+#define POSE_PICKUP     1
+#define POSE_FRONT_BIN  2
+#define POSE_BACK_BIN   3
+
+// Pin aliases used by arm_system
+#define M_PWMA_PIN      M_PWMA
+#define M_AIN1_PIN      M_AIN1
+#define M_AIN2_PIN      M_AIN2
+
 // ====================== TIMING ======================
 const unsigned long LINK_TIMEOUT_MS = 500;   // if no packet for this long → fault LED

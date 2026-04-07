@@ -3,24 +3,24 @@
 #include <esp_wifi.h>
 #include "config.h"
 #include "drive_controller.h"
+#include "arm_system.h"
 
 // ====================== GLOBAL DEFINITIONS ======================
 const char* dirNames[9] = {"CENTER", "N", "NE", "E", "SE", "S", "SW", "W", "NW"};
 
 DriveController driveController;
-unsigned long lastPacketTime = 0;
+ArmSystem arm;
+volatile unsigned long lastPacketTime = 0;
+volatile bool newPacket = false;
+InputState latestPacket;
+InputState lastPacket;
 
 // ====================== ESP-NOW RECEIVE CALLBACK ======================
 void onDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
   if (data_len == sizeof(InputState)) {
-    InputState pkt;
-    memcpy(&pkt, data, sizeof(InputState));
+    memcpy(&latestPacket, data, sizeof(InputState));
     lastPacketTime = millis();
-
-    digitalWrite(WIRELESS_LED_PIN, HIGH);
-
-    // Forward to control layer (this enables/disables rails)
-    driveController.update(pkt);
+    newPacket = true;
   }
 }
 
@@ -54,9 +54,18 @@ void setup() {
   digitalWrite(FAULT_LED_PIN, HIGH);
   delay(300);
   digitalWrite(FAULT_LED_PIN, LOW);
+  arm.begin();
 }
 
 void loop() {
+  if (newPacket) {
+    newPacket = false;
+    digitalWrite(WIRELESS_LED_PIN, HIGH);
+    driveController.update(latestPacket);
+  }
+  arm.update(latestPacket, lastPacket);
+  lastPacket = latestPacket;
+
   // Link loss detection
   if (millis() - lastPacketTime > LINK_TIMEOUT_MS) {
     digitalWrite(WIRELESS_LED_PIN, LOW);

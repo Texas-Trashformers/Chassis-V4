@@ -53,7 +53,7 @@ void ArmSystem::setBaseMotor(int speed) {
 }
 
 void ArmSystem::executePose(int poseID) {
-  int poseSpeed = 1500; // 1.5 seconds to reach pose
+  int poseSpeed = isFastMode ? 800 : 1500; // Reach pose faster in fast mode
   
   if (poseID == POSE_HOME) {
     lx1_angle = HOME_S1; lx2_angle = HOME_S2;
@@ -75,17 +75,27 @@ void ArmSystem::update(const InputState& currentInput, const InputState& lastInp
     return;
   }
 
-  // --- Phase 1: End Effector (Right Joy) ---
-  // INCLUDES POWER-SAVING DETACH FIX
+  // --- Speed Mode Toggles (Right D-Pad L/R) ---
+  if (currentInput.dpad_R_right && !lastInput.dpad_R_right) isFastMode = true;
+  if (currentInput.dpad_R_left && !lastInput.dpad_R_left) isFastMode = false;
+
+  // Dynamic Speeds based on mode
+  int activeLxStep = isFastMode ? 5 : 2;
+  int activeGripperStep = isFastMode ? 8 : GRIPPER_STEP;
+  int activeBaseSpeed = isFastMode ? 255 : BASE_SPEED;
+
+  // --- Phase 1: End Effector (Right Joy L/R) ---
   if (millis() - lastGripperUpdate > 50) {
     bool moved = false;
     
+    // Right Joystick Left/Right maps to Open/Close
+    // Note: Swapping + and - here will reverse the open/close direction if it's backwards on your specific servo
     if ((currentInput.joy2 == E || currentInput.joy2 == NE || currentInput.joy2 == SE) && gripperAngle < GRIPPER_MAX) {
-      gripperAngle += GRIPPER_STEP;
+      gripperAngle += activeGripperStep; // CLOSE
       moved = true;
     }
     if ((currentInput.joy2 == W || currentInput.joy2 == NW || currentInput.joy2 == SW) && gripperAngle > GRIPPER_MIN) {
-      gripperAngle -= GRIPPER_STEP;
+      gripperAngle -= activeGripperStep; // OPEN
       moved = true;
     }
     
@@ -94,49 +104,47 @@ void ArmSystem::update(const InputState& currentInput, const InputState& lastInp
     
     if (moved) {
       if (!gripper.attached()) {
-        gripper.attach(PWM_EE_PIN, 500, 2500); // Wake up servo
+        gripper.attach(PWM_EE_PIN, 500, 2500); 
       }
       gripper.write(gripperAngle);
       lastGripperUpdate = millis();
     } else if (millis() - lastGripperUpdate > 500 && gripper.attached()) {
-      // If we haven't moved the gripper in 500ms, turn off its PWM signal
       gripper.detach(); 
     }
   }
 
-  // --- Phase 2: Base Z-Axis (D-Pad L/R) ---
-  if (currentInput.dpad_L_right) {
-    setBaseMotor(BASE_SPEED);
-  } else if (currentInput.dpad_L_left) {
-    setBaseMotor(-BASE_SPEED);
+  // --- Phase 2: Base Z-Axis (Left Joy L/R) ---
+  if (currentInput.joy1 == E || currentInput.joy1 == NE || currentInput.joy1 == SE) {
+    setBaseMotor(activeBaseSpeed);  // CW (Pan Right)
+  } else if (currentInput.joy1 == W || currentInput.joy1 == NW || currentInput.joy1 == SW) {
+    setBaseMotor(-activeBaseSpeed); // CCW (Pan Left)
   } else {
     setBaseMotor(0);
   }
 
-  // --- Phase 3: LX-16A Joysticks (Left Joy) ---
+  // --- Phase 3: LX-16A Joysticks (Left Joy U/D, Right Joy U/D) ---
   if (millis() - lastLxUpdate > 30) {
     bool lxMoved = false;
 
-    // Servo 1: North/South
+    // Servo 1: Lower Arm (Left Joy Up/Down)
     if (currentInput.joy1 == N || currentInput.joy1 == NE || currentInput.joy1 == NW) {
-      lx1_angle += LX_STEP;
+      lx1_angle += activeLxStep; // UP / Lift
       lxMoved = true;
     } else if (currentInput.joy1 == S || currentInput.joy1 == SE || currentInput.joy1 == SW) {
-      lx1_angle -= LX_STEP;
+      lx1_angle -= activeLxStep; // DOWN / Lower
       lxMoved = true;
     }
 
-    // Servo 2: East/West
-    if (currentInput.joy1 == E || currentInput.joy1 == NE || currentInput.joy1 == SE) {
-      lx2_angle += LX_STEP;
+    // Servo 2: Upper Arm (Right Joy Up/Down)
+    if (currentInput.joy2 == N || currentInput.joy2 == NE || currentInput.joy2 == NW) {
+      lx2_angle += activeLxStep; // UP / Extend
       lxMoved = true;
-    } else if (currentInput.joy1 == W || currentInput.joy1 == NW || currentInput.joy1 == SW) {
-      lx2_angle -= LX_STEP;
+    } else if (currentInput.joy2 == S || currentInput.joy2 == SE || currentInput.joy2 == SW) {
+      lx2_angle -= activeLxStep; // DOWN / Retract
       lxMoved = true;
     }
 
     if (lxMoved) {
-      // LX-16A hardware limits are strictly 0 to 1000
       if (lx1_angle > 1000) lx1_angle = 1000;
       if (lx1_angle < 0) lx1_angle = 0;
       if (lx2_angle > 1000) lx2_angle = 1000;
@@ -148,20 +156,23 @@ void ArmSystem::update(const InputState& currentInput, const InputState& lastInp
     }
   }
 
-  // --- Phase 4: LX-16A Poses (D-Pad Edge Detects) ---
+  // --- Phase 4: Poses (D-Pads) ---
+  // Right D-Pad Poses
   if (currentInput.dpad_R_up && !lastInput.dpad_R_up) {
     executePose(POSE_HOME);
   }
   if (currentInput.dpad_R_down && !lastInput.dpad_R_down) {
     executePose(POSE_PICKUP);
   }
-  if (currentInput.dpad_L_up && !lastInput.dpad_L_up) {
+
+  // Left D-Pad Bin Dumps (Left/Down = Back, Right/Up = Front)
+  if ((currentInput.dpad_L_up && !lastInput.dpad_L_up) || (currentInput.dpad_L_right && !lastInput.dpad_L_right)) {
     executePose(POSE_FRONT_BIN);
   }
-  if (currentInput.dpad_L_down && !lastInput.dpad_L_down) {
+  if ((currentInput.dpad_L_down && !lastInput.dpad_L_down) || (currentInput.dpad_L_left && !lastInput.dpad_L_left)) {
     executePose(POSE_BACK_BIN);
   }
-} // <--- This was the missing bracket!
+}
 
 // ==========================================
 // LX-16A RAW BYTE HELPERS
@@ -194,5 +205,5 @@ void ArmSystem::lx16a_move(uint8_t id, int16_t raw_pos, uint16_t time_ms) {
     (uint8_t)(time_ms & 0xFF), 
     (uint8_t)(time_ms >> 8)
   };
-  lx16a_send(id, 1, p, 4); // 1 is the CMD for MOVE_TIME_WRITE
+  lx16a_send(id, 1, p, 4); 
 }

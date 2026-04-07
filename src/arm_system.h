@@ -10,6 +10,9 @@ public:
   void update(const InputState& currentInput, const InputState& lastInput);
 
 private:
+  // --- Speed Mode Tracking ---
+  bool isFastMode = false; 
+
   // --- Phase 1: End Effector ---
   Servo gripper;
   int gripperAngle = 0; 
@@ -23,9 +26,6 @@ private:
   int lx1_angle = 500; // 500 = Center (120 degrees)
   int lx2_angle = 500;
   unsigned long lastLxUpdate = 0;
-  
-  // 3 units per 30ms = approx 24 degrees per second
-  const int LX_STEP = 2; 
 
   // Raw serial helpers
   void lx16a_send(uint8_t id, uint8_t cmd, uint8_t* params, uint8_t len);

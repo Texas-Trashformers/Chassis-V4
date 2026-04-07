@@ -45,8 +45,6 @@ typedef struct __attribute__((packed)) {
 #define SDA_PIN            2
 
 // ====================== PHASE III: MOTOR CONTROL PINS ======================
-// From your MCU schematic
-
 // Arm TB6612FNG (M_* group)
 #define M_PWMA            15
 #define M_PWMB            16

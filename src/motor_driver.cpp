@@ -29,13 +29,16 @@ bool lx16a_send(uint8_t id, uint8_t cmd, uint8_t* params, uint8_t len) {
   lx16a_drain();
   lxUart.write(buf, buflen);
   lxUart.flush();
+
+#ifdef SERIAL_DEBUG
+  Serial.printf("[LX16A] Sent id=0x%02X cmd=0x%02X\n", id, cmd);
+#endif
   return true;
 }
 
-// Helper presets
 void lx16a_go_home() {
-  uint8_t p[4] = {0x00, 0x2E, 0x00, 0x00};   // 12000 centi-deg ≈ home
-  lx16a_send(0xFE, 1, p, 4);                  // broadcast to both servos
+  uint8_t p[4] = {0x00, 0x2E, 0x00, 0x00};
+  lx16a_send(0xFE, 1, p, 4);
 }
 
 void lx16a_move(uint8_t id, int16_t centi_deg) {
@@ -44,29 +47,18 @@ void lx16a_move(uint8_t id, int16_t centi_deg) {
   lx16a_send(id, 1, p, 4);
 }
 
-void lx16a_full_range() {
-  uint8_t p[4] = {0x00, 0x00, 0xE8, 0x03};   // 0 to 24000 centi-deg
-  lx16a_send(0xFE, 20, p, 4);
-}
-
-void lx16a_servo_mode() {
-  uint8_t p[4] = {0x00, 0x00, 0x00, 0x00};
-  lx16a_send(0xFE, 29, p, 4);
-}
 
 void TB6612::begin(uint8_t pwmPin, uint8_t in1Pin, uint8_t in2Pin, uint8_t invert) {
-  pwm = pwmPin; in1 = in1Pin; in2 = in2Pin;
+  pwm = pwmPin; in1 = in1Pin; in2 = in2Pin; inv = invert;
   pinMode(pwm, OUTPUT);
   pinMode(in1, OUTPUT);
   pinMode(in2, OUTPUT);
-  inv = invert;
   coast();
 }
 
 void TB6612::drive(int16_t speed) {
   if (speed > 255) speed = 255;
   if (speed < -255) speed = -255;
-
   if (inv) speed = -speed;
 
   if (speed > 0) {
@@ -102,20 +94,24 @@ void MotorDriver::begin() {
   rightFront.begin( R_PWMA, R_AIN1, R_AIN2, INVERT  );
   rightRear.begin(  R_PWMB, R_BIN1, R_BIN2, INVERT  );
 
-  // Arm setup (LX-16A on GPIO5, PWM end effector on GPIO7)
+  // Arm setup
   pinMode(LX16A_SIGNAL_PIN, OUTPUT | OPEN_DRAIN | PULLUP);
   lxUart.begin(115200, SERIAL_8N1, LX16A_SIGNAL_PIN, LX16A_SIGNAL_PIN);
   pinMode(PWM_EE_PIN, OUTPUT);
 
-  // One-time LX-16A initialization
-  lx16a_full_range();
-  delay(150);
-  lx16a_servo_mode();
-  delay(200);
+  // One-time LX-16A 
   lx16a_go_home();
   delay(800);
 
-  Serial.println("[MOTOR] Drive + Arm (LX-16A + PWM) ready");
+  Serial.println("[MOTOR] Drive + Arm ready");
+}
+
+void MotorDriver::update(const InputState& pkt) {
+  if (pkt.currentMode == MODE_DRIVE) {
+    handleDriveMode(pkt);
+  } else {
+    handleArmMode(pkt);
+  }
 }
 
 void MotorDriver::handleDriveMode(const InputState& pkt){
@@ -216,6 +212,21 @@ void MotorDriver::handleDriveMode(const InputState& pkt){
     rf = -baseSpeed; 
     rr = -baseSpeed; 
   } // Turn right
+
+  //modifiers from Joy1
+  if (pkt.joy1 == NE || pkt.joy1 == E || pkt.joy1 == SE){
+    lf += baseSpeed;
+    lr += baseSpeed;
+    rf -= baseSpeed;
+    rr -= baseSpeed;
+  }
+  if (pkt.joy1 == NW || pkt.joy1 == W || pkt.joy1 == SW){
+    lf -= baseSpeed;
+    lr -= baseSpeed;
+    rf += baseSpeed;
+    rr += baseSpeed;
+  }
+
   // Apply to each wheel
   leftFront.drive(lf);
   leftRear.drive(lr);
@@ -223,8 +234,8 @@ void MotorDriver::handleDriveMode(const InputState& pkt){
   rightRear.drive(rr);
 }
 
-void MotorDriver::handleArmMode(const InputState& pkt){
-    // Left D-Pad (Dump commands)
+void MotorDriver::handleArmMode(const InputState& pkt) {
+  // Left D-Pad – Dump commands (LX-16A)
   if (pkt.dpad_L_up)    { lx16a_move(1, 8000); lx16a_move(2, 8000); }     // Dump front bin
   if (pkt.dpad_L_down)  { lx16a_move(1, 16000); lx16a_move(2, 16000); }   // Dump back bin
   if (pkt.dpad_L_left)  { lx16a_move(1, 4000); lx16a_move(2, 4000); }     // Dump to back bin
@@ -234,25 +245,24 @@ void MotorDriver::handleArmMode(const InputState& pkt){
   if (pkt.dpad_R_up)    { lx16a_go_home(); }                              // Resting / Home
   if (pkt.dpad_R_down)  { lx16a_move(1, 6000); lx16a_move(2, 6000); }    // Pick up in front
 
-  // Speed mode (affects future moves - placeholder for now)
-  // Slow / Fast can be used later for speed scaling
+  // End effector PWM on GPIO7 – slow ramp with Joy2 E/W
+  static int gripperPWM = 0;   // 0 = open, 255 = closed
 
-  // End effector PWM on GPIO7 (simple open/close example)
-  if (pkt.dpad_R_left)  analogWrite(PWM_EE_PIN, 80);   // Slow mode - partial close
-  if (pkt.dpad_R_right) analogWrite(PWM_EE_PIN, 255);  // Fast mode - full close
+  if (pkt.joy2 == E) {         // Open gripper slowly
+    if (gripperPWM > 0) gripperPWM = max(0, gripperPWM - 6);
+  }
+  if (pkt.joy2 == W) {         // Close gripper slowly
+    if (gripperPWM < 255) gripperPWM = min(255, gripperPWM + 6);
+  }
+
+  analogWrite(PWM_EE_PIN, gripperPWM);
 
 #ifdef SERIAL_DEBUG
   static uint32_t count = 0;
-  if (++count % 8 == 0) {
-    Serial.printf("[ARM] Mode:ARM  Joy2:%s  L-Pad:%d%d%d%d  R-Pad:%d%d%d%d\n",
-                  dirNames[pkt.joy2],
-                  pkt.dpad_L_up, pkt.dpad_L_down, pkt.dpad_L_left, pkt.dpad_L_right,
-                  pkt.dpad_R_up, pkt.dpad_R_down, pkt.dpad_R_left, pkt.dpad_R_right);
+  if (++count % 6 == 0) {
+    Serial.printf("[ARM] Joy2:%s  Gripper:%d%%  L-Pad:%d%d%d%d\n",
+                  dirNames[pkt.joy2], (gripperPWM * 100) / 255,
+                  pkt.dpad_L_up, pkt.dpad_L_down, pkt.dpad_L_left, pkt.dpad_L_right);
   }
 #endif
-}
-
-void MotorDriver::update(const InputState& pkt) {
-  if (pkt.currentMode == MODE_DRIVE){ handleDriveMode(pkt); }
-  else{ handleArmMode(pkt); }
 }

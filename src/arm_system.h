@@ -25,7 +25,7 @@ private:
   unsigned long lastLxUpdate = 0;
   
   // 3 units per 30ms = approx 24 degrees per second
-  const int LX_STEP = 3; 
+  const int LX_STEP = 2; 
 
   // Raw serial helpers
   void lx16a_send(uint8_t id, uint8_t cmd, uint8_t* params, uint8_t len);

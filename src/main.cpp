@@ -5,6 +5,8 @@
 #include "drive_controller.h"
 #include "arm_system.h"
 
+
+
 // ====================== GLOBAL DEFINITIONS ======================
 const char* dirNames[9] = {"CENTER", "N", "NE", "E", "SE", "S", "SW", "W", "NW"};
 
@@ -25,6 +27,18 @@ void onDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
 }
 
 void setup() {
+  // DELETE THIS LINE:
+  // WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); 
+
+  pinMode(WIRELESS_LED_PIN, OUTPUT);
+  // ... (keep your normal setup code)
+
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+  esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
+  
+  // DELETE THIS LINE (Restore full Wi-Fi range!):
+  // esp_wifi_set_max_tx_power(40);
   pinMode(WIRELESS_LED_PIN, OUTPUT);
   pinMode(FAULT_LED_PIN, OUTPUT);
 
@@ -40,6 +54,11 @@ void setup() {
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
   esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
+  
+  // --- LOWER WI-FI TX POWER ---
+  // Default is usually around 78 (19.5dBm). Lowering it reduces amp spikes.
+  // Allowed range is 8 (2dBm) to 84 (20dBm).
+  esp_wifi_set_max_tx_power(40); // Sets roughly to 10dBm (plenty for short range)
 
   if (esp_now_init() != ESP_OK) {
     Serial.println("[ERROR] ESP-NOW init failed!");
@@ -68,13 +87,7 @@ void loop() {
   if (millis() - lastPacketTime > LINK_TIMEOUT_MS) {
     digitalWrite(WIRELESS_LED_PIN, LOW);
     digitalWrite(FAULT_LED_PIN, (millis() % 400 < 200) ? HIGH : LOW);
-    
-    // --- NEW FAILSAFE: Stop all motors if connection drops ---
-    // If we don't do this, the ESP32 will keep trying to drive motors
-    // based on stale data, keeping voltage low and preventing reconnection.
     memset(&latestPacket, 0, sizeof(InputState)); 
-    // (Assuming 0 equates to 'CENTER' for your joystick enums and unpressed for buttons)
-    
   } else {
     digitalWrite(FAULT_LED_PIN, LOW);
   }

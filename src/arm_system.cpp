@@ -9,7 +9,7 @@ void ArmSystem::begin() {
   gripperAngle = GRIPPER_MIN;
   gripper.write(gripperAngle);
   
-  delay(500); // <-- Let power stabilize
+  delay(500);
 
   pinMode(M_PWMA_PIN, OUTPUT);
   pinMode(M_AIN1_PIN, OUTPUT);
@@ -19,13 +19,12 @@ void ArmSystem::begin() {
   // RAW UART SETUP
   lxUart.begin(115200, SERIAL_8N1, -1, LX16A_SIGNAL_PIN); 
 
-  // 2. Wake up LX-16A Servo 1
+  // 2. Wake up LX-16A Servo 1 (Home S1)
   lx16a_move(1, HOME_S1, 1000);
   lx1_angle = HOME_S1;
-  
-  delay(500); // <-- Let power stabilize
+  delay(500);
 
-  // 3. Wake up LX-16A Servo 2
+  // 3. Wake up LX-16A Servo 2 (Home S2)
   lx16a_move(2, HOME_S2, 1000);
   lx2_angle = HOME_S2;
 
@@ -52,8 +51,24 @@ void ArmSystem::setBaseMotor(int speed) {
   }
 }
 
+void ArmSystem::setGripperAngle(int angle) {
+  if (angle > GRIPPER_MAX) angle = GRIPPER_MAX;
+  if (angle < GRIPPER_MIN) angle = GRIPPER_MIN;
+  gripperAngle = angle;
+  
+  if (!gripper.attached()) {
+    gripper.attach(PWM_EE_PIN, 500, 2500); 
+  }
+  gripper.write(gripperAngle);
+  lastGripperUpdate = millis();
+}
+
+void ArmSystem::cancelSequence() {
+  activeSequenceStep = 0; // Stop the background sequence if user touches joysticks
+}
+
 void ArmSystem::executePose(int poseID) {
-  int poseSpeed = isFastMode ? 800 : 1500; // Reach pose faster in fast mode
+  int poseSpeed = isFastMode ? 800 : 1500; 
   
   if (poseID == POSE_HOME) {
     lx1_angle = HOME_S1; lx2_angle = HOME_S2;
@@ -61,12 +76,58 @@ void ArmSystem::executePose(int poseID) {
     lx1_angle = PICKUP_S1; lx2_angle = PICKUP_S2;
   } else if (poseID == POSE_FRONT_BIN) {
     lx1_angle = FRONT_BIN_S1; lx2_angle = FRONT_BIN_S2;
-  } else if (poseID == POSE_BACK_BIN) {
-    lx1_angle = BACK_BIN_S1; lx2_angle = BACK_BIN_S2;
   }
 
   lx16a_move(1, lx1_angle, poseSpeed);
   lx16a_move(2, lx2_angle, poseSpeed);
+}
+
+// Background sequence executor for "Dump Our Back Bin"
+void ArmSystem::updateSequence() {
+  if (activeSequenceStep == 0) return; // Not running
+
+  // 500ms delay between sequence steps (matches old web controller 'speed' variable)
+  if (millis() - sequenceTimer < 500) return;
+  sequenceTimer = millis();
+
+  switch(activeSequenceStep) {
+    case 1:
+      lx1_angle = HOME_S1; lx2_angle = HOME_S2;
+      lx16a_move(1, lx1_angle, 500); lx16a_move(2, lx2_angle, 500);
+      setGripperAngle(0);
+      activeSequenceStep++; break;
+    case 2:
+      lx1_angle = 125; lx2_angle = 333; // S1=30, S2=80
+      lx16a_move(1, lx1_angle, 500); lx16a_move(2, lx2_angle, 500);
+      setGripperAngle(0);
+      activeSequenceStep++; break;
+    case 3:
+      setGripperAngle(25);
+      activeSequenceStep++; break;
+    case 4:
+      setGripperAngle(32);
+      activeSequenceStep++; break;
+    case 5:
+      lx1_angle = 42; lx2_angle = 500; // S1=10, S2=120
+      lx16a_move(1, lx1_angle, 500); lx16a_move(2, lx2_angle, 500);
+      activeSequenceStep++; break;
+    case 6:
+      lx1_angle = 750; lx2_angle = 500; // S1=180, S2=120
+      lx16a_move(1, lx1_angle, 500); lx16a_move(2, lx2_angle, 500);
+      activeSequenceStep++; break;
+    case 7:
+      lx1_angle = 83; lx2_angle = 396; // S1=20, S2=95
+      lx16a_move(1, lx1_angle, 500); lx16a_move(2, lx2_angle, 500);
+      activeSequenceStep++; break;
+    case 8:
+      setGripperAngle(0);
+      activeSequenceStep++; break;
+    case 9:
+      lx1_angle = HOME_S1; lx2_angle = HOME_S2;
+      lx16a_move(1, lx1_angle, 500); lx16a_move(2, lx2_angle, 500);
+      activeSequenceStep = 0; // Sequence Complete
+      break;
+  }
 }
 
 void ArmSystem::update(const InputState& currentInput, const InputState& lastInput) {
@@ -75,11 +136,13 @@ void ArmSystem::update(const InputState& currentInput, const InputState& lastInp
     return;
   }
 
+  // --- Step 1: Run active background sequences ---
+  updateSequence();
+
   // --- Speed Mode Toggles (Right D-Pad L/R) ---
   if (currentInput.dpad_R_right && !lastInput.dpad_R_right) isFastMode = true;
   if (currentInput.dpad_R_left && !lastInput.dpad_R_left) isFastMode = false;
 
-  // Dynamic Speeds based on mode
   int activeLxStep = isFastMode ? 5 : 2;
   int activeGripperStep = isFastMode ? 8 : GRIPPER_STEP;
   int activeBaseSpeed = isFastMode ? 255 : BASE_SPEED;
@@ -87,36 +150,31 @@ void ArmSystem::update(const InputState& currentInput, const InputState& lastInp
   // --- Phase 1: End Effector (Right Joy L/R) ---
   if (millis() - lastGripperUpdate > 50) {
     bool moved = false;
+    int proposedAngle = gripperAngle;
     
-    // Right Joystick Left/Right maps to Open/Close
-    // Note: Swapping + and - here will reverse the open/close direction if it's backwards on your specific servo
-    if ((currentInput.joy2 == E || currentInput.joy2 == NE || currentInput.joy2 == SE) && gripperAngle < GRIPPER_MAX) {
-      gripperAngle += activeGripperStep; // CLOSE
+    if (currentInput.joy2 == E || currentInput.joy2 == NE || currentInput.joy2 == SE) {
+      proposedAngle += activeGripperStep; // CLOSE
       moved = true;
     }
-    if ((currentInput.joy2 == W || currentInput.joy2 == NW || currentInput.joy2 == SW) && gripperAngle > GRIPPER_MIN) {
-      gripperAngle -= activeGripperStep; // OPEN
+    if (currentInput.joy2 == W || currentInput.joy2 == NW || currentInput.joy2 == SW) {
+      proposedAngle -= activeGripperStep; // OPEN
       moved = true;
     }
-    
-    if (gripperAngle > GRIPPER_MAX) gripperAngle = GRIPPER_MAX;
-    if (gripperAngle < GRIPPER_MIN) gripperAngle = GRIPPER_MIN;
     
     if (moved) {
-      if (!gripper.attached()) {
-        gripper.attach(PWM_EE_PIN, 500, 2500); 
-      }
-      gripper.write(gripperAngle);
-      lastGripperUpdate = millis();
-    } else if (millis() - lastGripperUpdate > 500 && gripper.attached()) {
-      gripper.detach(); 
+      cancelSequence(); // User takeover
+      setGripperAngle(proposedAngle);
+    } else if (millis() - lastGripperUpdate > 500 && gripper.attached() && activeSequenceStep == 0) {
+      gripper.detach(); // Power saving if idle and no sequence is running
     }
   }
 
   // --- Phase 2: Base Z-Axis (Left Joy L/R) ---
   if (currentInput.joy1 == E || currentInput.joy1 == NE || currentInput.joy1 == SE) {
+    cancelSequence();
     setBaseMotor(activeBaseSpeed);  // CW (Pan Right)
   } else if (currentInput.joy1 == W || currentInput.joy1 == NW || currentInput.joy1 == SW) {
+    cancelSequence();
     setBaseMotor(-activeBaseSpeed); // CCW (Pan Left)
   } else {
     setBaseMotor(0);
@@ -145,6 +203,8 @@ void ArmSystem::update(const InputState& currentInput, const InputState& lastInp
     }
 
     if (lxMoved) {
+      cancelSequence(); // User takeover
+
       if (lx1_angle > 1000) lx1_angle = 1000;
       if (lx1_angle < 0) lx1_angle = 0;
       if (lx2_angle > 1000) lx2_angle = 1000;
@@ -159,18 +219,23 @@ void ArmSystem::update(const InputState& currentInput, const InputState& lastInp
   // --- Phase 4: Poses (D-Pads) ---
   // Right D-Pad Poses
   if (currentInput.dpad_R_up && !lastInput.dpad_R_up) {
-    executePose(POSE_HOME);
+    cancelSequence(); executePose(POSE_HOME);
   }
   if (currentInput.dpad_R_down && !lastInput.dpad_R_down) {
-    executePose(POSE_PICKUP);
+    cancelSequence(); executePose(POSE_PICKUP);
   }
 
-  // Left D-Pad Bin Dumps (Left/Down = Back, Right/Up = Front)
+  // Left D-Pad Bin Dumps
   if ((currentInput.dpad_L_up && !lastInput.dpad_L_up) || (currentInput.dpad_L_right && !lastInput.dpad_L_right)) {
-    executePose(POSE_FRONT_BIN);
+    cancelSequence(); executePose(POSE_FRONT_BIN);
   }
+  
+  // Left D-Pad Down/Left = Execute the complex "Dump Our Back Bin" Sequence
   if ((currentInput.dpad_L_down && !lastInput.dpad_L_down) || (currentInput.dpad_L_left && !lastInput.dpad_L_left)) {
-    executePose(POSE_BACK_BIN);
+    if (activeSequenceStep == 0) { // Only start if not already running
+      activeSequenceStep = 1;
+      sequenceTimer = 0; // Trigger step 1 immediately
+    }
   }
 }
 

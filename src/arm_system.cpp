@@ -9,6 +9,9 @@ void ArmSystem::begin() {
   gripperAngle = GRIPPER_MIN;
   gripper.write(gripperAngle);
   
+  // --- NEW: Current Sensing Pin ---
+  pinMode(CURRENT_SENSOR_PIN, INPUT);
+
   delay(500);
 
   pinMode(M_PWMA_PIN, OUTPUT);
@@ -143,7 +146,8 @@ void ArmSystem::update(const InputState& currentInput, const InputState& lastInp
   if (currentInput.dpad_R_right && !lastInput.dpad_R_right) isFastMode = true;
   if (currentInput.dpad_R_left && !lastInput.dpad_R_left) isFastMode = false;
 
-  int activeLxStep = isFastMode ? 5 : 2;
+  // --- NEW: Smooth LX-16A Steps ---
+  int activeLxStep = isFastMode ? 8 : 4; 
   int activeGripperStep = isFastMode ? 8 : GRIPPER_STEP;
   int activeBaseSpeed = isFastMode ? 255 : BASE_SPEED;
 
@@ -152,10 +156,21 @@ void ArmSystem::update(const InputState& currentInput, const InputState& lastInp
     bool moved = false;
     int proposedAngle = gripperAngle;
     
+    int currentDraw = analogRead(CURRENT_SENSOR_PIN); 
+
+    // CLOSING LOGIC WITH STALL PROTECTION
     if (currentInput.joy2 == E || currentInput.joy2 == NE || currentInput.joy2 == SE) {
-      proposedAngle += activeGripperStep; // CLOSE
-      moved = true;
+      if (currentDraw < GRIP_CURRENT_THRESHOLD) { 
+        proposedAngle += activeGripperStep; // CLOSE
+        moved = true;
+      } else {
+        // STALL DETECTED: "Back-Off" Method
+        proposedAngle -= 2; 
+        moved = true; 
+      }
     }
+    
+    // OPENING LOGIC
     if (currentInput.joy2 == W || currentInput.joy2 == NW || currentInput.joy2 == SW) {
       proposedAngle -= activeGripperStep; // OPEN
       moved = true;
@@ -181,7 +196,8 @@ void ArmSystem::update(const InputState& currentInput, const InputState& lastInp
   }
 
   // --- Phase 3: LX-16A Joysticks (Left Joy U/D, Right Joy U/D) ---
-  if (millis() - lastLxUpdate > 30) {
+  // --- NEW: Loop delay increased to 40ms to prevent flooding ---
+  if (millis() - lastLxUpdate > 40) { 
     bool lxMoved = false;
 
     // Servo 1: Lower Arm (Left Joy Up/Down)
@@ -210,8 +226,9 @@ void ArmSystem::update(const InputState& currentInput, const InputState& lastInp
       if (lx2_angle > 1000) lx2_angle = 1000;
       if (lx2_angle < 0) lx2_angle = 0;
 
-      lx16a_move(1, lx1_angle, 30);
-      lx16a_move(2, lx2_angle, 30);
+      // --- NEW: "Chasing the Carrot" Timing (Commanded time is 100ms) ---
+      lx16a_move(1, lx1_angle, 100);
+      lx16a_move(2, lx2_angle, 100);
       lastLxUpdate = millis();
     }
   }

@@ -70,10 +70,13 @@ typedef struct __attribute__((packed)) {
 #define L_BIN2            48
 
 // LX-16A Bus Servo Signal
-#define LX16A_SIGNAL_PIN   5
+// #define LX16A_SIGNAL_PIN   5 (Already defined above)
 
 // End Effector Standard PWM Servo
 #define PWM_EE_PIN         7
+
+// --- NEW: Current Sensing ---
+#define CURRENT_SENSOR_PIN 34  // Analog pin for your inline current sensor (e.g., ACS712)
 
 // Limit Switches
 #define LIM_SW_L_PIN       9   
@@ -84,6 +87,10 @@ typedef struct __attribute__((packed)) {
 #define GRIPPER_MAX     180
 #define GRIPPER_STEP    5
 #define BASE_SPEED      150
+
+// --- NEW: Current Stall Threshold ---
+// ADC value (0-4095). Tune this value based on your specific sensor reading when stalled.
+#define GRIP_CURRENT_THRESHOLD 2500 
 
 #define POSE_HOME       0
 #define POSE_PICKUP     1

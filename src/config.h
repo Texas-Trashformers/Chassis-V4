@@ -29,7 +29,7 @@ typedef struct __attribute__((packed)) {
 } InputState;
 
 // ====================== DEBUG ======================
-#define SERIAL_DEBUG
+//#define SERIAL_DEBUG
 
 // ====================== LEDs ======================
 #define WIRELESS_LED_PIN   12

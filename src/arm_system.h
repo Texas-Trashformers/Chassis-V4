@@ -1,7 +1,6 @@
 #pragma once
 #include <Arduino.h>
 #include <ESP32Servo.h>
-#include <HardwareSerial.h>
 #include "config.h"
 
 class ArmSystem {
@@ -10,40 +9,39 @@ public:
   void update(const InputState& currentInput, const InputState& lastInput);
 
 private:
-  // --- Speed Mode Tracking ---
-  bool isFastMode = false; 
-
-  // --- Phase 1: End Effector ---
   Servo gripper;
-  int gripperAngle = 0; 
+  int gripperAngle;
   unsigned long lastGripperUpdate = 0;
-  void setGripperAngle(int angle); // Helper to handle power-saving attach/detach
 
-  // --- Phase 2: N20 Z-Axis Motor ---
-  void setBaseMotor(int speed);
-
-  // --- Phase 3: LX-16A Raw Byte Bus ---
   HardwareSerial lxUart{1}; 
-  int lx1_angle = 83;  // Home S1 (20 deg)
-  int lx2_angle = 416; // Home S2 (100 deg)
+  int lx1_angle = 250;  // Default start to match HOME
+  int lx2_angle = 300;  // Default start to match HOME
   unsigned long lastLxUpdate = 0;
 
-  // Raw serial helpers
+  bool isFastMode = false;
+  int activeSequenceStep = 0;
+  int activeSequenceMode = 0; // 1 = Front, 2 = Back
+  unsigned long sequenceTimer = 0;
+
+  // --- N20 Base Stepping Variables ---
+  bool isBaseStepping = false;
+  unsigned long baseStepTimer = 0;
+  const int BASE_STEP_DURATION_MS = 150; // Tune this to make the "step" larger or smaller
+
+  void setBaseMotor(int speed);
+  void setGripperAngle(int angle);
+  void executePose(int poseID);
+  void updateSequence();
+  void cancelSequence();
+  void handleSerialCalibration();
+
   void lx16a_send(uint8_t id, uint8_t cmd, uint8_t* params, uint8_t len);
   void lx16a_move(uint8_t id, int16_t raw_pos, uint16_t time_ms);
 
-  // --- Pose & Sequence Definitions ---
-  void executePose(int poseID);
-  
-  // Non-blocking sequence variables
-  int activeSequenceStep = 0;
-  unsigned long sequenceTimer = 0;
-  void updateSequence();
-  void cancelSequence();
-
-  // Translated Angles (Degrees * 1000 / 240)
-  const int HOME_S1 = 83, HOME_S2 = 416;             // 20 deg, 100 deg
-  const int PICKUP_S1 = 416, PICKUP_S2 = 958;        // 100 deg, 230 deg
-  const int FRONT_BIN_S1 = 0, FRONT_BIN_S2 = 708;    // 0 deg, 170 deg
-  const int BACK_BIN_S1 = 333, BACK_BIN_S2 = 416;    // 80 deg, 100 deg
+  // === MAPPED POSITIONS ===
+  const int HOME_S1 = 250, HOME_S2 = 300;            
+  const int PICKUP_S1 = 450, PICKUP_S2 = 1000;        
+  const int SAFE_S1 = 900, SAFE_S2 = 400;
+  const int FRONT_BIN_S1 = 0, FRONT_BIN_S2 = 525;    
+  const int BACK_BIN_S1 = 250, BACK_BIN_S2 = 400;    // <--- UPDATED S2 to 400
 };
